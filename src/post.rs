@@ -8,21 +8,25 @@ use crate::{
 };
 use std::iter;
 
+pub use filecoin_proofs_v1::NetReader;
+
 pub fn generate_candidates(
     randomness: &ChallengeSeed,
     challenge_count: u64,
     replicas: &BTreeMap<SectorId, PrivateReplicaInfo>,
     prover_id: ProverId,
+    net_reader: filecoin_proofs_v1::NetReader,
 ) -> Result<Vec<Candidate>> {
     let (replicas_v1, config_v1) = split_replicas(replicas)?;
     ensure!(!replicas_v1.is_empty(), "missing v1 replicas");
 
-    let candidates_v1 = filecoin_proofs_v1::generate_candidates(
+    let candidates_v1 = filecoin_proofs_v1::generate_candidates_with_reader(
         config_v1.expect("checked before").as_v1_config(),
         randomness,
         challenge_count,
         &replicas_v1,
         prover_id,
+        net_reader,
     )?;
 
     // once there are multiple versions, merge them before returning
@@ -39,6 +43,7 @@ pub fn generate_post(
     replicas: &BTreeMap<SectorId, PrivateReplicaInfo>,
     winners: Vec<Candidate>,
     prover_id: ProverId,
+    net_reader: filecoin_proofs_v1::NetReader,
 ) -> Result<Vec<(RegisteredPoStProof, SnarkProof)>> {
     let (replicas_v1, registered_post_proof_type_v1) = split_replicas(replicas)?;
     ensure!(!replicas_v1.is_empty(), "missing v1 replicas");
@@ -47,12 +52,13 @@ pub fn generate_post(
 
     let rpp_v1 = registered_post_proof_type_v1.expect("already checked");
 
-    let posts_v1 = filecoin_proofs_v1::generate_post(
+    let posts_v1 = filecoin_proofs_v1::generate_post_with_reader(
         rpp_v1.as_v1_config(),
         randomness,
         &replicas_v1,
         winners_v1,
         prover_id,
+        net_reader,
     )?;
 
     let post_tuples = posts_v1
@@ -119,10 +125,8 @@ fn split_replicas(
                     registered_post_proof_type_v1 = Some(*registered_proof);
                 }
 
-                let info_v1 = filecoin_proofs_v1::PrivateReplicaInfo::new(
-                    replica_path.clone(),
+                let info_v1 = filecoin_proofs_v1::PrivateReplicaInfo::new_only_comm_r(
                     *comm_r,
-                    cache_dir.into(),
                 )?;
 
                 replicas_v1.insert(*id, info_v1);

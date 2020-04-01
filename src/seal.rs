@@ -47,6 +47,44 @@ pub fn clear_cache(cache_path: &Path) -> Result<()> {
     filecoin_proofs_v1::clear_cache(cache_path)
 }
 
+pub fn generate_comm_d_tree<R, S>(
+    registered_proof: RegisteredSealProof,
+    cache_path: R,
+    in_path: S,
+    piece_infos: &[PieceInfo],
+) -> Result<SealPreCommitPhase1Output>
+    where
+        R: AsRef<Path>,
+        S: AsRef<Path>,
+{
+    use RegisteredSealProof::*;
+
+    match registered_proof {
+        StackedDrg2KiBV1 | StackedDrg8MiBV1 | StackedDrg512MiBV1 | StackedDrg32GiBV1 => {
+            let config = registered_proof.as_v1_config();
+            let output = filecoin_proofs_v1::generate_comm_d_tree(
+                config,
+                cache_path,
+                in_path,
+                piece_infos,
+            )?;
+
+            let filecoin_proofs_v1::types::SealPreCommitPhase1Output {
+                labels,
+                config,
+                comm_d,
+            } = output;
+
+            Ok(SealPreCommitPhase1Output {
+                registered_proof,
+                labels,
+                config,
+                comm_d,
+            })
+        }
+    }
+}
+
 pub fn seal_pre_commit_phase1<R, S, T>(
     registered_proof: RegisteredSealProof,
     cache_path: R,
@@ -57,6 +95,46 @@ pub fn seal_pre_commit_phase1<R, S, T>(
     ticket: Ticket,
     piece_infos: &[PieceInfo],
 ) -> Result<SealPreCommitPhase1Output>
+    where
+        R: AsRef<Path>,
+        S: AsRef<Path>,
+        T: AsRef<Path>,
+{
+    let phase1_output = vec![];
+    seal_pre_commit_phase1_internal(registered_proof, cache_path, in_path, out_path, prover_id, sector_id, ticket, piece_infos, &phase1_output)
+}
+
+pub fn seal_pre_commit_phase1_with_comm_d<R, S, T>(
+    registered_proof: RegisteredSealProof,
+    cache_path: R,
+    in_path: S,
+    out_path: T,
+    prover_id: ProverId,
+    sector_id: SectorId,
+    ticket: Ticket,
+    piece_infos: &[PieceInfo],
+    phase1_output: SealPreCommitPhase1Output,
+) -> Result<SealPreCommitPhase1Output>
+    where
+        R: AsRef<Path>,
+        S: AsRef<Path>,
+        T: AsRef<Path>,
+{
+    let phase1_output = vec![phase1_output];
+    seal_pre_commit_phase1_internal(registered_proof, cache_path, in_path, out_path, prover_id, sector_id, ticket, piece_infos, &phase1_output)
+}
+
+pub fn seal_pre_commit_phase1_internal<R, S, T>(
+    registered_proof: RegisteredSealProof,
+    cache_path: R,
+    in_path: S,
+    out_path: T,
+    prover_id: ProverId,
+    sector_id: SectorId,
+    ticket: Ticket,
+    piece_infos: &[PieceInfo],
+    phase1_output: &[SealPreCommitPhase1Output],
+) -> Result<SealPreCommitPhase1Output>
 where
     R: AsRef<Path>,
     S: AsRef<Path>,
@@ -64,10 +142,21 @@ where
 {
     use RegisteredSealProof::*;
 
+    let phase1_output_opt = if phase1_output.len() > 0 {
+        let phase1_output = phase1_output[0].clone();
+        Some(filecoin_proofs_v1::types::SealPreCommitPhase1Output {
+            labels: phase1_output.labels,
+            config: phase1_output.config,
+            comm_d: phase1_output.comm_d,
+        })
+    } else {
+        None
+    };
+
     match registered_proof {
         StackedDrg2KiBV1 | StackedDrg8MiBV1 | StackedDrg512MiBV1 | StackedDrg32GiBV1 => {
             let config = registered_proof.as_v1_config();
-            let output = filecoin_proofs_v1::seal_pre_commit_phase1(
+            let output = filecoin_proofs_v1::seal_pre_commit_phase1_with_comm_d(
                 config,
                 cache_path,
                 in_path,
@@ -76,6 +165,7 @@ where
                 sector_id,
                 ticket,
                 piece_infos,
+                phase1_output_opt,
             )?;
 
             let filecoin_proofs_v1::types::SealPreCommitPhase1Output {
