@@ -275,6 +275,60 @@ pub fn clear_cache(sector_size: u64, cache_path: &Path) -> Result<()> {
     with_shape!(sector_size, clear_cache, cache_path)
 }
 
+pub fn generate_comm_d_tree<R, S>(
+    registered_proof: RegisteredSealProof,
+    cache_path: R,
+    in_path: S,
+    piece_infos: &[PieceInfo],
+) -> Result<SealPreCommitPhase1Output>
+    where
+        R: AsRef<Path>,
+        S: AsRef<Path>,
+{
+    with_shape!(
+        u64::from(registered_proof.sector_size()),
+        generate_comm_d_tree_inner,
+        registered_proof,
+        cache_path.as_ref(),
+        in_path.as_ref(),
+        piece_infos,
+    )
+}
+
+fn generate_comm_d_tree_inner<Tree: 'static + MerkleTreeTrait>(
+    registered_proof: RegisteredSealProof,
+    cache_path: &Path,
+    in_path: &Path,
+    piece_infos: &[PieceInfo],
+) -> Result<SealPreCommitPhase1Output> {
+    use RegisteredSealProof::*;
+
+    match registered_proof {
+        StackedDrg2KiBV1 | StackedDrg8MiBV1 | StackedDrg512MiBV1 | StackedDrg32GiBV1 | StackedDrg64GiBV1 => {
+            let config = registered_proof.as_v1_config();
+            let output = filecoin_proofs_v1::generate_comm_d_tree::<_, _, Tree>(
+                config,
+                cache_path,
+                in_path,
+                piece_infos,
+            )?;
+
+            let filecoin_proofs_v1::types::SealPreCommitPhase1Output {
+                labels,
+                config,
+                comm_d,
+            } = output;
+
+            Ok(SealPreCommitPhase1Output {
+                registered_proof,
+                labels: Labels::from_raw::<Tree>(registered_proof, &labels)?,
+                config,
+                comm_d,
+            })
+        }
+    }
+}
+
 pub fn seal_pre_commit_phase1<R, S, T>(
     registered_proof: RegisteredSealProof,
     cache_path: R,
@@ -295,6 +349,8 @@ where
         "unusupported version"
     );
 
+    let phase1_output = vec![];
+
     with_shape!(
         u64::from(registered_proof.sector_size()),
         seal_pre_commit_phase1_inner,
@@ -305,7 +361,46 @@ where
         prover_id,
         sector_id,
         ticket,
-        piece_infos
+        piece_infos,
+        &phase1_output,
+    )
+}
+
+pub fn seal_pre_commit_phase1_with_comm_d<R, S, T>(
+    registered_proof: RegisteredSealProof,
+    cache_path: R,
+    in_path: S,
+    out_path: T,
+    prover_id: ProverId,
+    sector_id: SectorId,
+    ticket: Ticket,
+    piece_infos: &[PieceInfo],
+    phase1_output: SealPreCommitPhase1Output,
+) -> Result<SealPreCommitPhase1Output>
+    where
+        R: AsRef<Path>,
+        S: AsRef<Path>,
+        T: AsRef<Path>,
+{
+    ensure!(
+        registered_proof.version() == Version::V1,
+        "unusupported version"
+    );
+
+    let phase1_output = vec![phase1_output];
+
+    with_shape!(
+        u64::from(registered_proof.sector_size()),
+        seal_pre_commit_phase1_inner,
+        registered_proof,
+        cache_path.as_ref(),
+        in_path.as_ref(),
+        out_path.as_ref(),
+        prover_id,
+        sector_id,
+        ticket,
+        piece_infos,
+        &phase1_output,
     )
 }
 
@@ -318,10 +413,22 @@ fn seal_pre_commit_phase1_inner<Tree: 'static + MerkleTreeTrait>(
     sector_id: SectorId,
     ticket: Ticket,
     piece_infos: &[PieceInfo],
+    phase1_output: &[SealPreCommitPhase1Output],
 ) -> Result<SealPreCommitPhase1Output> {
     let config = registered_proof.as_v1_config();
 
-    let output = filecoin_proofs_v1::seal_pre_commit_phase1::<_, _, _, Tree>(
+    let phase1_output_opt = if phase1_output.len() > 0 {
+        let phase1_output = phase1_output[0].clone();
+        Some(filecoin_proofs_v1::types::SealPreCommitPhase1Output {
+            labels: phase1_output.labels.try_into()?,
+            config: phase1_output.config,
+            comm_d: phase1_output.comm_d,
+        })
+    } else {
+        None
+    };
+
+    let output = filecoin_proofs_v1::seal_pre_commit_phase1_with_comm_d::<_, _, _, Tree>(
         config,
         cache_path,
         in_path,
@@ -330,6 +437,7 @@ fn seal_pre_commit_phase1_inner<Tree: 'static + MerkleTreeTrait>(
         sector_id,
         ticket,
         piece_infos,
+        phase1_output_opt,
     )?;
 
     let filecoin_proofs_v1::types::SealPreCommitPhase1Output::<Tree> {
