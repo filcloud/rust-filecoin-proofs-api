@@ -16,5 +16,6 @@ pub use filecoin_proofs_v1::storage_proofs::sector::{OrderedSectorSet, SectorId}
 pub use filecoin_proofs_v1::types::{
     ChallengeSeed, Commitment, PaddedBytesAmount, PieceInfo, PoStType, ProverId, Ticket,
     UnpaddedByteIndex, UnpaddedBytesAmount,
+    DISK_LOCK,
 };
 pub use filecoin_proofs_v1::SnarkProof;
