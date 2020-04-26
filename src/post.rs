@@ -9,6 +9,8 @@ use crate::{
     SectorId, SnarkProof,
 };
 
+pub use filecoin_proofs_v1::NetReader;
+
 pub fn generate_winning_post_sector_challenge(
     proof_type: RegisteredPoStProof,
     randomness: &ChallengeSeed,
@@ -48,6 +50,7 @@ pub fn generate_winning_post(
     randomness: &ChallengeSeed,
     replicas: &BTreeMap<SectorId, PrivateReplicaInfo>,
     prover_id: ProverId,
+    net_reader: NetReader,
 ) -> Result<Vec<(RegisteredPoStProof, SnarkProof)>> {
     ensure!(!replicas.is_empty(), "no replicas supplied");
     let registered_post_proof_type_v1 = replicas
@@ -67,6 +70,7 @@ pub fn generate_winning_post(
         randomness,
         replicas,
         prover_id,
+        net_reader,
     )
 }
 
@@ -75,6 +79,7 @@ fn generate_winning_post_inner<Tree: 'static + MerkleTreeTrait>(
     randomness: &ChallengeSeed,
     replicas: &BTreeMap<SectorId, PrivateReplicaInfo>,
     prover_id: ProverId,
+    net_reader: NetReader,
 ) -> Result<Vec<(RegisteredPoStProof, SnarkProof)>> {
     let mut replicas_v1 = Vec::new();
 
@@ -90,21 +95,20 @@ fn generate_winning_post_inner<Tree: 'static + MerkleTreeTrait>(
             registered_proof == &registered_proof_v1,
             "can only generate the same kind of PoSt"
         );
-        let info_v1 = filecoin_proofs_v1::PrivateReplicaInfo::new(
-            replica_path.clone(),
+        let info_v1 = filecoin_proofs_v1::PrivateReplicaInfo::new_only_comm_r(
             *comm_r,
-            cache_dir.into(),
         )?;
 
         replicas_v1.push((*id, info_v1));
     }
 
     ensure!(!replicas_v1.is_empty(), "missing v1 replicas");
-    let posts_v1 = filecoin_proofs_v1::generate_winning_post::<Tree>(
+    let posts_v1 = filecoin_proofs_v1::generate_winning_post_with_reader::<Tree>(
         &registered_proof_v1.as_v1_config(),
         randomness,
         &replicas_v1,
         prover_id,
+        net_reader,
     )?;
 
     // once there are multiple versions, merge them before returning
@@ -181,6 +185,7 @@ pub fn generate_window_post(
     randomness: &ChallengeSeed,
     replicas: &BTreeMap<SectorId, PrivateReplicaInfo>,
     prover_id: ProverId,
+    net_reader: NetReader,
 ) -> Result<Vec<(RegisteredPoStProof, SnarkProof)>> {
     ensure!(!replicas.is_empty(), "no replicas supplied");
     let registered_post_proof_type_v1 = replicas
@@ -200,6 +205,7 @@ pub fn generate_window_post(
         randomness,
         replicas,
         prover_id,
+        net_reader,
     )
 }
 
@@ -208,6 +214,7 @@ fn generate_window_post_inner<Tree: 'static + MerkleTreeTrait>(
     randomness: &ChallengeSeed,
     replicas: &BTreeMap<SectorId, PrivateReplicaInfo>,
     prover_id: ProverId,
+    net_reader: NetReader,
 ) -> Result<Vec<(RegisteredPoStProof, SnarkProof)>> {
     let mut replicas_v1 = BTreeMap::new();
 
@@ -223,21 +230,20 @@ fn generate_window_post_inner<Tree: 'static + MerkleTreeTrait>(
             registered_proof == &registered_proof_v1,
             "can only generate the same kind of PoSt"
         );
-        let info_v1 = filecoin_proofs_v1::PrivateReplicaInfo::new(
-            replica_path.clone(),
+        let info_v1 = filecoin_proofs_v1::PrivateReplicaInfo::new_only_comm_r(
             *comm_r,
-            cache_dir.into(),
         )?;
 
         replicas_v1.insert(*id, info_v1);
     }
 
     ensure!(!replicas_v1.is_empty(), "missing v1 replicas");
-    let posts_v1 = filecoin_proofs_v1::generate_window_post::<Tree>(
+    let posts_v1 = filecoin_proofs_v1::generate_window_post_with_reader::<Tree>(
         &registered_proof_v1.as_v1_config(),
         randomness,
         &replicas_v1,
         prover_id,
+        net_reader,
     )?;
 
     // once there are multiple versions, merge them before returning
