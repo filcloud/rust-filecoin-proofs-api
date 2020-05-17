@@ -10,6 +10,7 @@ use crate::{
 };
 
 pub use filecoin_proofs_v1::NetReader;
+pub use filecoin_proofs_v1::MerkleTreeProofCallback;
 
 pub fn generate_winning_post_sector_challenge(
     proof_type: RegisteredPoStProof,
@@ -51,6 +52,7 @@ pub fn generate_winning_post(
     replicas: &BTreeMap<SectorId, PrivateReplicaInfo>,
     prover_id: ProverId,
     net_reader: NetReader,
+    tree_cb: Option<MerkleTreeProofCallback>,
 ) -> Result<Vec<(RegisteredPoStProof, SnarkProof)>> {
     ensure!(!replicas.is_empty(), "no replicas supplied");
     let registered_post_proof_type_v1 = replicas
@@ -71,6 +73,7 @@ pub fn generate_winning_post(
         replicas,
         prover_id,
         net_reader,
+        tree_cb,
     )
 }
 
@@ -80,6 +83,7 @@ fn generate_winning_post_inner<Tree: 'static + MerkleTreeTrait>(
     replicas: &BTreeMap<SectorId, PrivateReplicaInfo>,
     prover_id: ProverId,
     net_reader: NetReader,
+    tree_cb: Option<MerkleTreeProofCallback>,
 ) -> Result<Vec<(RegisteredPoStProof, SnarkProof)>> {
     let mut replicas_v1 = Vec::new();
 
@@ -109,11 +113,84 @@ fn generate_winning_post_inner<Tree: 'static + MerkleTreeTrait>(
         &replicas_v1,
         prover_id,
         net_reader,
+        tree_cb,
     )?;
 
     // once there are multiple versions, merge them before returning
 
     Ok(vec![(registered_proof_v1, posts_v1)])
+}
+
+pub fn tree_prove(
+    randomness: &ChallengeSeed,
+    replicas: &BTreeMap<SectorId, PrivateReplicaInfo>,
+    j: usize,
+    i: usize,
+    num_sectors_per_chunk: usize,
+) -> Result<String> {
+    ensure!(!replicas.is_empty(), "no replicas supplied");
+    let registered_post_proof_type_v1 = replicas
+        .values()
+        .next()
+        .map(|v| v.registered_proof)
+        .unwrap();
+    ensure!(
+        registered_post_proof_type_v1.typ() == PoStType::Winning || registered_post_proof_type_v1.typ() == PoStType::Window,
+        "invalid post type provide"
+    );
+
+    with_shape!(
+        u64::from(registered_post_proof_type_v1.sector_size()),
+        tree_prove_inner,
+        registered_post_proof_type_v1,
+        randomness,
+        replicas,
+        j,
+        i,
+        num_sectors_per_chunk,
+    )
+}
+
+fn tree_prove_inner<Tree: 'static + MerkleTreeTrait>(
+    registered_proof_v1: RegisteredPoStProof,
+    randomness: &ChallengeSeed,
+    replicas: &BTreeMap<SectorId, PrivateReplicaInfo>,
+    j: usize,
+    i: usize,
+    num_sectors_per_chunk: usize,
+) -> Result<String> {
+    let mut replicas_v1 = Vec::new();
+
+    for (id, info) in replicas.iter() {
+        let PrivateReplicaInfo {
+            registered_proof,
+            comm_r,
+            cache_dir,
+            replica_path,
+        } = info;
+
+        ensure!(
+            registered_proof == &registered_proof_v1,
+            "can only generate the same kind of PoSt"
+        );
+        let info_v1 = filecoin_proofs_v1::PrivateReplicaInfo::new(
+            replica_path.clone(),
+            *comm_r,
+            cache_dir.into(),
+        )?;
+
+        replicas_v1.push((*id, info_v1));
+    }
+
+    ensure!(!replicas_v1.is_empty(), "missing v1 replicas");
+    filecoin_proofs_v1::tree_prove::<Tree>(
+        &registered_proof_v1.as_v1_config(),
+        randomness,
+        &replicas_v1,
+        j,
+        i,
+        num_sectors_per_chunk,
+    )
 }
 
 pub fn verify_winning_post(
@@ -186,6 +263,7 @@ pub fn generate_window_post(
     replicas: &BTreeMap<SectorId, PrivateReplicaInfo>,
     prover_id: ProverId,
     net_reader: NetReader,
+    tree_cb: Option<MerkleTreeProofCallback>,
 ) -> Result<Vec<(RegisteredPoStProof, SnarkProof)>> {
     ensure!(!replicas.is_empty(), "no replicas supplied");
     let registered_post_proof_type_v1 = replicas
@@ -206,6 +284,7 @@ pub fn generate_window_post(
         replicas,
         prover_id,
         net_reader,
+        tree_cb,
     )
 }
 
@@ -215,6 +294,7 @@ fn generate_window_post_inner<Tree: 'static + MerkleTreeTrait>(
     replicas: &BTreeMap<SectorId, PrivateReplicaInfo>,
     prover_id: ProverId,
     net_reader: NetReader,
+    tree_cb: Option<MerkleTreeProofCallback>,
 ) -> Result<Vec<(RegisteredPoStProof, SnarkProof)>> {
     let mut replicas_v1 = BTreeMap::new();
 
@@ -244,6 +324,7 @@ fn generate_window_post_inner<Tree: 'static + MerkleTreeTrait>(
         &replicas_v1,
         prover_id,
         net_reader,
+        tree_cb,
     )?;
 
     // once there are multiple versions, merge them before returning
